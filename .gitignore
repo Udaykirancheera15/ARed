@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+
+outputs/
+*.safetensors
+*.pt
+
+*.png
+*.pdf
+
+.env
+.cache/
+
+last_500_lines.txt
+output.txt
+
