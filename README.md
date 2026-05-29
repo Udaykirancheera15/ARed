@@ -43,7 +43,7 @@ The attack is framed as a **Capture-The-Flag (CTF) game** where the attacker has
 
 ## 📊 Results (on Synthetic Dataset — Multi-Victim Evaluation)
 
-AUTORED was evaluated against four victim LLMs over **70 CTF rounds** each (up to 100 interactions per round). Results are from `outputs/evaluation/results.json`.
+AUTORED was evaluated against four victim LLMs over **70 CTF rounds** each (up to 30 interactions per round)[Note: Original Paper used 100 interactions]. Results are from `outputs/evaluation/results.json`.]
 
 | Victim LLM | Successes / 70 | Success Rate | Defence Rate | Avg Steps (on success) |
 |---|:---:|:---:|:---:|:---:|
