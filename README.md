@@ -233,6 +233,7 @@ To regenerate them (after evaluation), run the provided script or adapt from the
 - **Wang & Tayebi** for the original AUTORED paper.
 - **Mistral AI** for the model used to generate the synthetic dataset.
 - **Hugging Face** for the Transformers library.
+- **IIT Patna's CyberSecurity Lab** for the resources and support from Prof.Somanath Tripathy sir
 
 ---
 
