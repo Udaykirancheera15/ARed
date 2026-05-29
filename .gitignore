@@ -5,7 +5,6 @@ outputs/
 *.safetensors
 *.pt
 
-*.png
 *.pdf
 
 .env
