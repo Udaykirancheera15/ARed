@@ -51,7 +51,7 @@ class DetectorTrainer:
     
     def train(self, train_data, val_data=None):
         dataset = DetectorDataset(train_data, self.tokenizer)
-        dataloader = DataLoader(dataset, batch_size=CFG.detector_batch_size, shuffle=True, collate_fn=collate_fn, num_workers=16,pin_memory=True,prefetch_factor=4)
+        dataloader = DataLoader(dataset, batch_size=CFG.detector_batch_size, shuffle=True, collate_fn=collate_fn, num_workers=4, pin_memory=True, prefetch_factor=2)
         optimizer = AdamW(self.model.parameters(), lr=CFG.detector_learning_rate)
         
         self.model.train()

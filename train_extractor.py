@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
 AUTORED - Sensitive Information Extractor (Section IV-B)
-Fixed: Proper literal presence filtering + positive sample testing
+Fixed: Memory optimization via AMP & adaptive batch size
 """
 
 import os
+import random
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.optim import AdamW
+from torch.cuda.amp import autocast, GradScaler
 from transformers import T5Tokenizer, T5ForConditionalGeneration
 from tqdm import tqdm
 from config import CFG
@@ -16,16 +18,23 @@ from utils import load_jsonl, set_seed, clear_memory
 set_seed(42)
 
 # ============================================================
-# HYPERPARAMETERS
+# HYPERPARAMETERS & SETUP
 # ============================================================
-BATCH_SIZE = CFG.extractor_batch_size
-GRADIENT_ACCUMULATION_STEPS = 2
+# Use local cuda:0 inside Python since CUDA_VISIBLE_DEVICES remaps the chosen GPU to 0
+# DEVICE = torch.device("cuda:0" if torch.cuda.is me_available() else "cpu")
+
+DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+# Reduced per-device batch size to prevent OOM
+BATCH_SIZE = getattr(CFG, 'extractor_batch_size', 8)
+if BATCH_SIZE > 16:
+    BATCH_SIZE = 16  # Safeguard batch size for ~16GB GPUs
+
+GRADIENT_ACCUMULATION_STEPS = 4
 MAX_LENGTH = 384
 TARGET_MAX_LENGTH = 64
-NUM_WORKERS = 4                                    # Reduced for stability
-PREFETCH_FACTOR = 2
+NUM_WORKERS = 2
 PIN_MEMORY = True
-USE_BF16 = False                                   # Use FP32 for stability
 
 class ExtractionDataset(Dataset):
     def __init__(self, data, tokenizer, max_length=MAX_LENGTH, target_max_length=TARGET_MAX_LENGTH):
@@ -77,8 +86,7 @@ def collate_fn(batch):
 class ExtractorTrainer:
     def __init__(self):
         self.tokenizer = T5Tokenizer.from_pretrained(CFG.extractor_model_name)
-        self.model = T5ForConditionalGeneration.from_pretrained(CFG.extractor_model_name).to(CFG.device)
-        # No torch.compile for stability
+        self.model = T5ForConditionalGeneration.from_pretrained(CFG.extractor_model_name).to(DEVICE)
     
     def train(self, train_data, val_data=None):
         dataset = ExtractionDataset(train_data, self.tokenizer)
@@ -88,11 +96,11 @@ class ExtractorTrainer:
             shuffle=True,
             collate_fn=collate_fn,
             num_workers=NUM_WORKERS,
-            pin_memory=PIN_MEMORY,
-            prefetch_factor=PREFETCH_FACTOR
+            pin_memory=PIN_MEMORY
         )
         
         optimizer = AdamW(self.model.parameters(), lr=CFG.extractor_learning_rate)
+        scaler = GradScaler()
         accumulation_steps = GRADIENT_ACCUMULATION_STEPS
         self.model.train()
         
@@ -105,35 +113,36 @@ class ExtractorTrainer:
             progress = tqdm(dataloader, desc=f"Extractor Epoch {epoch+1}/{CFG.extractor_epochs}")
             
             for step, batch in enumerate(progress):
-                input_ids = batch['input_ids'].to(CFG.device)
-                attention_mask = batch['attention_mask'].to(CFG.device)
-                labels = batch['labels'].to(CFG.device)
+                input_ids = batch['input_ids'].to(DEVICE)
+                attention_mask = batch['attention_mask'].to(DEVICE)
+                labels = batch['labels'].to(DEVICE)
                 
-                # No mixed precision for stability
-                outputs = self.model(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    labels=labels
-                )
-                loss = outputs.loss / accumulation_steps
+                with autocast():
+                    outputs = self.model(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        labels=labels
+                    )
+                    loss = outputs.loss / accumulation_steps
                 
-                loss.backward()
+                scaler.scale(loss).backward()
                 
                 if (step + 1) % accumulation_steps == 0 or (step + 1) == len(dataloader):
+                    scaler.unscale_(optimizer)
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-                    optimizer.step()
+                    scaler.step(optimizer)
+                    scaler.update()
                     optimizer.zero_grad()
                 
                 total_loss += loss.item() * accumulation_steps
                 progress.set_postfix({'loss': f"{loss.item() * accumulation_steps:.4f}"})
-                clear_memory()
             
             avg_loss = total_loss / len(dataloader)
             print(f"Epoch {epoch+1}: Loss = {avg_loss:.4f}")
+            clear_memory()
         
-        model_to_save = self.model
         os.makedirs(CFG.extractor_path, exist_ok=True)
-        model_to_save.save_pretrained(CFG.extractor_path)
+        self.model.save_pretrained(CFG.extractor_path)
         self.tokenizer.save_pretrained(CFG.extractor_path)
         print(f"Extractor saved to {CFG.extractor_path}")
     
@@ -145,11 +154,12 @@ class ExtractorTrainer:
             max_length=MAX_LENGTH,
             truncation=True,
             return_tensors='pt'
-        ).to(CFG.device)
+        ).to(DEVICE)
+        
         outputs = self.model.generate(
             input_ids=inputs['input_ids'], 
             max_length=TARGET_MAX_LENGTH,
-            num_beams=4,                           # Beam search for better extraction
+            num_beams=4,
             early_stopping=True
         )
         result = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
@@ -158,7 +168,6 @@ class ExtractorTrainer:
 if __name__ == "__main__":
     data = load_jsonl(CFG.dataset_path)
     
-    # First, identify positive examples (code literally present)
     positives = [item for item in data 
                  if item.get('llm_output') and item.get('access_code')
                  and item['access_code'].lower() in item['llm_output'].lower()]
@@ -166,23 +175,18 @@ if __name__ == "__main__":
     print(f"Found {len(positives)} positive examples (code literally present)")
     
     if len(positives) == 0:
-        print("ERROR: No positive examples found! The extractor cannot train properly.")
-        print("Your dataset has no examples where the LLM outputs the access code literally.")
-        print("Consider using a regex-based extractor instead.")
+        print("ERROR: No positive examples found!")
         exit(1)
     
-    # Add negative examples (where code is NOT present)
     negatives = [item for item in data
                  if item.get('llm_output') and item.get('access_code')
                  and item['access_code'].lower() not in item['llm_output'].lower()]
-    negatives = negatives[:len(positives)]  # Balance classes
+    negatives = negatives[:len(positives)]
     
     for item in negatives:
         item['access_code'] = 'NONE'
     
-    # Combine and shuffle
     valid = positives + negatives
-    import random
     random.shuffle(valid)
     
     print(f"Total training samples: {len(valid)} ({len(positives)} positives, {len(negatives)} negatives)")
@@ -194,7 +198,6 @@ if __name__ == "__main__":
     trainer = ExtractorTrainer()
     trainer.train(train_data, val_data)
     
-    # Test on a REAL positive example (not the first item)
     print("\n" + "="*60)
     print("TESTING EXTRACTOR ON POSITIVE EXAMPLES")
     print("="*60)
@@ -205,5 +208,3 @@ if __name__ == "__main__":
         print(f"True code: {item['access_code']}")
         print(f"Extracted: {extracted}")
         print(f"Success: {extracted == item['access_code']}")
-        if extracted != item['access_code']:
-            print(f"Output snippet: {item['llm_output'][:200]}...")

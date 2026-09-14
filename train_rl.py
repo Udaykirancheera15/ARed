@@ -25,12 +25,13 @@ class NLPOPolicy(nn.Module):
 
     def __init__(self, sft_model_path):
         super().__init__()
-        # Force FP32 for consistency
+        # Use SFT checkpoint if it exists, otherwise fall back to base model
+        model_name = sft_model_path if (os.path.exists(sft_model_path) and os.path.isdir(sft_model_path)) else CFG.sft_model_name
         self.base_model = T5ForConditionalGeneration.from_pretrained(
-            sft_model_path,
+            model_name,
             torch_dtype=torch.float32,
         )
-        self.tokenizer = T5Tokenizer.from_pretrained(sft_model_path)
+        self.tokenizer = T5Tokenizer.from_pretrained(model_name)
         self.vocab_size = len(self.tokenizer)
         self.hidden_dim = self.base_model.config.d_model
 
@@ -107,13 +108,17 @@ class NLPOPolicy(nn.Module):
 
     def compute_log_probs_and_values(self, context, generated_text):
         """Compute log probs, values, and mask probabilities."""
-        input_ids = self.tokenizer(context, max_length=256, truncation=True, return_tensors='pt')['input_ids'].to(CFG.device)
-        action_ids = self.tokenizer(generated_text, return_tensors='pt')['input_ids'].to(CFG.device)
+        inputs = self.tokenizer(context, max_length=256, truncation=True, return_tensors='pt').to(CFG.device)
+        action_ids = self.tokenizer(generated_text, max_length=128, truncation=True, return_tensors='pt')['input_ids'].to(CFG.device)
 
-        decoder_input_ids = action_ids[:, :-1]
-        labels = action_ids[:, 1:]
+        decoder_input_ids = self.base_model._shift_right(action_ids)
+        labels = action_ids
 
-        logits, hidden_states = self.get_logits_and_hidden(input_ids, None, decoder_input_ids)
+        logits, hidden_states = self.get_logits_and_hidden(
+            inputs['input_ids'],
+            inputs['attention_mask'],
+            decoder_input_ids
+        )
 
         # Compute log probabilities for each token
         log_probs = []

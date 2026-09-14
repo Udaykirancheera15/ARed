@@ -309,7 +309,10 @@ if __name__ == "__main__":
     print("  3. Load previous results and generate plots only")
     print("=" * 60)
 
-    choice = input("Enter 1, 2, or 3 (default: 2): ").strip() or "2"
+    try:
+        choice = input("Enter 1, 2, or 3 (default: 2): ").strip() or "2"
+    except (EOFError, RuntimeError):
+        choice = "2"
 
     if choice == "2":
         print("\n[Four-LLM Evaluation] This will take ~1.5–2 hours.")

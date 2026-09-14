@@ -30,6 +30,7 @@ for bar, rate in zip(bars2, paper_rates):
     ax.annotate(f'{rate}%', xy=(bar.get_x() + bar.get_width()/2, bar.get_height()),
                xytext=(0, 3), textcoords='offset points', ha='center')
 
-plt.tight_layout()
+import os
+os.makedirs('outputs/figures', exist_ok=True)
 plt.savefig('outputs/figures/slide23_comparison.png', dpi=300)
 print("✅ Slide 23 figure saved")

@@ -12,4 +12,7 @@ outputs/
 
 last_500_lines.txt
 output.txt
+slurm*.out
+slurm*.err
+*.log
 
