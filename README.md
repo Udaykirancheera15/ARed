@@ -30,14 +30,14 @@ The attack is framed as a **Capture-The-Flag (CTF) game** where the attacker has
 
 ## 🚀 Key Features
 
-- ✅ **Synthetic dataset** (12k samples) generated with Mistral (Ollama) – no TensorTrust required.
-- ✅ **Supervised fine-tuning** (SFT) of T5 on attacker inputs.
-- ✅ **NLPO/PPO reinforcement learning** with GAE, clipping, entropy bonus, and a learned mask head.
-- ✅ **Sandwich defence** simulation in the victim environment.
-- ✅ **Binary stop-point classifier** (BERT) with >99% accuracy.
-- ✅ **CTF evaluation** – 70 rounds, results saved as JSON.
-- ✅ **Extractor-optional** mode – uses direct string matching when the extractor fails (recommended).
-- ✅ **Fully optimised** for multi-GPU / multi-CPU environments (batch size up to 48, 16 workers, bfloat16).
+- **Synthetic dataset** (12k samples) generated with Mistral (Ollama) – no TensorTrust required.
+- **Supervised fine-tuning** (SFT) of T5 on attacker inputs.
+- **NLPO/PPO reinforcement learning** with GAE, clipping, entropy bonus, and a learned mask head.
+- **Sandwich defence** simulation in the victim environment.
+- **Binary stop-point classifier** (BERT) with >99% accuracy.
+- **CTF evaluation** – 70 rounds, results saved as JSON.
+- **Extractor-optional** mode – uses direct string matching when the extractor fails (recommended).
+- **Fully optimised** for multi-GPU / multi-CPU environments (batch size up to 48, 16 workers, bfloat16).
 
 ---
 
